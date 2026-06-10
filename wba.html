@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WBA — universo</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+      :root { --accent: #ff5d3c; --white: #ffffff; --dark: #0a0a0a; --radius: 6px; --nav-height: 68px; }
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: "Inter", -apple-system, sans-serif; }
+      a { text-decoration: none; }
+      #field { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: grab; }
+      #field:active { cursor: grabbing; }
+      /* ===== NAV (apariencia de wbamaqueta2, estatico) ===== */
+      .nav { position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; background: transparent; }
+      .nav__inner { display: flex; align-items: center; justify-content: space-between; height: var(--nav-height); padding: 0 clamp(20px, 2.5vw, 40px); }
+      .nav__logo { display: inline-flex; align-items: center; opacity: 0; transform: translateY(-8px); pointer-events: none; }
+      .nav.scrolled .nav__logo { opacity: 1; transform: none; pointer-events: auto; }
+      .nav__logo img { height: 32px; width: auto; }
+      .nav__menu { display: flex; align-items: center; gap: 36px; }
+      .nav__link { font-size: 0.85rem; font-weight: 400; color: rgba(255,255,255,0.7); transition: color 0.3s; }
+      .nav__link:hover { color: var(--white); }
+      .nav__link--active { color: var(--accent); }
+      .nav__link--cta { padding: 8px 22px; border: 1px solid rgba(255,255,255,0.25); border-radius: var(--radius); color: var(--white); font-weight: 500; }
+      .nav__link--cta:hover { background: var(--white); color: var(--dark); border-color: var(--white); }
+      .nav__toggle { display: none; flex-direction: column; gap: 5px; background: none; border: none; cursor: pointer; padding: 8px; z-index: 1001; }
+      .nav__toggle span { width: 22px; height: 1.5px; background: var(--white); }
+      .nav__lang { display: inline-flex; gap: 2px; align-items: center; margin: 0 6px; padding: 2px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 6px; }
+      .nav__lang-btn { display: inline-block; padding: 4px 9px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: rgba(255,255,255,.55); border-radius: 4px; line-height: 1; }
+      .nav__lang-btn--active { background: rgba(255,255,255,.18); color: #fff; }
+      @media (max-width: 768px) {
+        .nav__menu { display: none; }
+        .nav__toggle { display: flex; }
+      }
+      /* centrado vertical y horizontal en el espacio entre el menu y el texto (texto arranca ~36vh) */
+      .brand { position: fixed; top: calc((var(--nav-height) + 36vh) / 2); left: 50%; transform: translate(-50%, -50%); z-index: 3; opacity: 0; transition: opacity 1.4s ease .3s; pointer-events: none; }
+      .brand.show { opacity: 1; }
+      .brand img { width: min(396px, 68vw); height: auto; display: block; }
+      .strip { position: fixed; left: 0; right: 0; bottom: 0; height: 50px; background: #fff; display: flex; align-items: center; justify-content: center; z-index: 3; opacity: 0; transition: opacity 1.2s ease .7s; }
+      .strip.show { opacity: 1; }
+      .strip p { margin: 0; font: 500 13px/1 "Inter", system-ui, sans-serif; color: #131314; letter-spacing: .05em; }
+    </style>
+  </head>
+  <body>
+    <canvas id="field"></canvas>
+    <!-- nav de wbamaqueta2 (solo apariencia, para calibrar proporciones) -->
+    <header class="nav" id="nav">
+      <div class="nav__inner">
+        <a class="nav__logo" href="#"><img src="logos/logo-wba-2025-blanco-05-scaled.png" alt="The WBA" /></a>
+        <button class="nav__toggle" aria-label="Abrir menú"><span></span><span></span><span></span></button>
+        <nav class="nav__menu">
+          <a href="#" class="nav__link nav__link--active">Inicio</a>
+          <a href="#" class="nav__link">Diseño Web</a>
+          <a href="#" class="nav__link">Marketing Estratégico</a>
+          <a href="#" class="nav__link">Diseño Gráfico</a>
+          <a href="#" class="nav__link">Inteligencia Artificial</a>
+          <span class="nav__lang"><a href="#" class="nav__lang-btn nav__lang-btn--active">ES</a><a href="#" class="nav__lang-btn">EN</a></span>
+          <a href="#" class="nav__link nav__link--cta">Contacto</a>
+        </nav>
+      </div>
+    </header>
+    <header class="brand" id="brand"><img src="logos/logo%20the%20web%20broadcasting%20agency-06.png" alt="The Web Broadcasting Agency" /></header>
+    <footer class="strip" id="strip"><p>Agencia de diseño y marketing digital.</p></footer>
+
+    <script type="importmap">
+      { "imports": { "three": "https://unpkg.com/three@0.169.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/" } }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+      import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+      import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+
+      // Paleta WBA (wba.cl): negro + blanco/gris + acento naranja
+      const ACCENT = new THREE.Color("#ff5d3c");
+      const EMBER = new THREE.Color("#ff8a3c");
+      const WHITE = new THREE.Color("#ffffff");
+
+      const CFG = { count: window.innerWidth < 760 ? 13000 : 32000, radius: 3.0 };
+      const VIEW = { scale: 3.2, y: -10.8 };         // planeta gigante asomando (~1/3 inferior, un poco mas entero)
+      const ROT = { speed: 0.05, tilt: -1.4, yaw0: 2.7 }; // yaw0 fija el meridiano de Sudamerica (~65O) al frente; el giro continuo va en el tilt -> la superficie sube (abajo->arriba), LatAm centrada
+      const PHYS = { spr: 0.075, damp: 0.86, jit: 0.0009 }; // fisica pretext: resorte + inercia (sin mouse)
+      const STARBG = { count: 760 };
+
+      const TAU = Math.PI * 2;
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const smooth = (t) => t * t * (3 - 2 * t);
+      const sstep = (e0, e1, x) => smooth(clamp((x - e0) / (e1 - e0), 0, 1));
+      const frc = (x) => x - Math.floor(x);
+
+      let seed = 0x9e3779b9;
+      function rand() { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
+
+      const canvas = document.getElementById("field");
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      renderer.setClearColor(0x000000, 1);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+      camera.position.set(0, 0, 12);
+
+      const composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      const isMobile = window.innerWidth < 760;
+      const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), isMobile ? 0.18 : 0.8, isMobile ? 0.3 : 0.55, isMobile ? 0.5 : 0.3); // en celular el glow al minimo: no ensucia la lectura del texto ni la forma del continente
+      composer.addPass(bloomPass);
+
+      // ---------- mascara de continentes ----------
+      async function loadEarthMask() {
+        const sources = [
+          { url: "https://unpkg.com/three-globe/example/img/earth-water.png", classify: (r) => r < 128 },
+          { url: "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg", classify: (r, g, b) => !(b > r * 1.3 && b > g * 1.1) },
+        ];
+        for (const s of sources) { const fn = await tryLoadMask(s.url, s.classify); if (fn) return fn; }
+        return null;
+      }
+      function tryLoadMask(url, classify) {
+        return new Promise((resolve) => {
+          const img = new Image(); img.crossOrigin = "anonymous";
+          img.onload = () => {
+            const W = 512, H = 256, c = document.createElement("canvas"); c.width = W; c.height = H;
+            const g = c.getContext("2d"); g.drawImage(img, 0, 0, W, H);
+            let data; try { data = g.getImageData(0, 0, W, H).data; } catch (e) { resolve(null); return; }
+            resolve((uu, vv) => { const x = Math.min(W - 1, Math.max(0, Math.floor(uu * W))); const y = Math.min(H - 1, Math.max(0, Math.floor(vv * H))); const i = (y * W + x) * 4; return classify(data[i], data[i + 1], data[i + 2]); });
+          };
+          img.onerror = () => resolve(null); img.src = url;
+        });
+      }
+      function continentNoise(x, y, z) { let v = Math.sin(x * 1.2 + y * 0.6) * Math.cos(z * 1.0); v += 0.5 * Math.sin(x * 2.6 - z * 2.0 + 1.3) * Math.cos(y * 2.2); v += 0.25 * Math.sin(y * 4.8 + z * 4.1 + 2.1); return v; }
+
+      // ---------- planeta de particulas ----------
+      const N = CFG.count;
+      const positions = new Float32Array(N * 3), colors = new Float32Array(N * 3), sizes = new Float32Array(N);
+      const P = new Array(N);
+      // fisica: la coreografia marca el target, el resorte decide el camino
+      const ppx = new Float32Array(N), ppy = new Float32Array(N), ppz = new Float32Array(N);
+      const pvx = new Float32Array(N), pvy = new Float32Array(N), pvz = new Float32Array(N);
+
+      function buildGlobe(earthSampler) {
+        for (let i = 0; i < N; i++) {
+          let theta, phi, ex, ey, ez, isLand; const wantLand = rand() < 0.84; let tries = 0; // continentes DENSOS, oceano tenue -> se leen las formas
+          do { const u2 = rand(), v2 = rand(); theta = Math.acos(2 * v2 - 1); phi = u2 * TAU; const er = CFG.radius + (rand() - 0.5) * 0.03; ex = er * Math.sin(theta) * Math.cos(phi); ey = er * Math.cos(theta); ez = er * Math.sin(theta) * Math.sin(phi); isLand = earthSampler ? earthSampler(1 - phi / TAU, theta / Math.PI) : continentNoise(ex, ey, ez) > 0.18; tries++; } while (wantLand && !isLand && tries < 28);
+          P[i] = {
+            hx: ex, hy: ey, hz: ez, isLand,
+            size: isLand ? 2.1 + rand() * 1.5 : 1.1 + rand() * 1.0, // tierra con mas cuerpo; la forma la dibuja la densidad
+            tw: rand() * TAU, tws: 1.5 + rand() * 4.0, tw2: rand() * TAU, tws2: 0.7 + rand() * 2.6,
+          };
+          const i3 = i * 3;
+          positions[i3] = ex; positions[i3 + 1] = ey; positions[i3 + 2] = ez; sizes[i] = P[i].size;
+          ppx[i] = ex; ppy[i] = ey; ppz[i] = ez; // arranca formado, en reposo
+          colors[i3] = 0; colors[i3 + 1] = 0; colors[i3 + 2] = 0;
+        }
+      }
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
+      geometry.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+      const material = new THREE.ShaderMaterial({
+        uniforms: { uScale: { value: 20.0 }, uOpacity: { value: 0.0 } },
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        vertexShader: `attribute float aSize; attribute vec3 aColor; varying vec3 vColor; uniform float uScale; void main(){ vColor=aColor; vec4 mv=modelViewMatrix*vec4(position,1.0); gl_PointSize=aSize*(uScale/-mv.z); gl_Position=projectionMatrix*mv; }`,
+        fragmentShader: `precision mediump float; varying vec3 vColor; uniform float uOpacity; void main(){ vec2 d=gl_PointCoord-vec2(0.5); float r=dot(d,d); if(r>0.25) discard; float a=smoothstep(0.25,0.0,r); gl_FragColor=vec4(vColor*(0.55+a*0.75), a*uOpacity); }`,
+      });
+      const points = new THREE.Points(geometry, material); points.frustumCulled = false; scene.add(points);
+      points.scale.setScalar(VIEW.scale); points.position.y = VIEW.y;
+
+      // ---------- COMETAS: rutas entre ciudades, slerp 100% en GPU (giran con el planeta) ----------
+      const HUBS = { nyc: [40.7, -74.0], la: [34.05, -118.24], mia: [25.76, -80.19], mex: [19.43, -99.13], sao: [-23.55, -46.63], scl: [-33.45, -70.66], lon: [51.5, -0.12], dxb: [25.2, 55.27], tyo: [35.68, 139.69], hnl: [21.3, -157.85] };
+      const ROUTES = [["nyc", "lon"], ["mia", "sao"], ["la", "tyo"], ["nyc", "mex"], ["la", "hnl"], ["mia", "scl"], ["nyc", "dxb"]];
+      const llv = (h) => { const th = (90 - HUBS[h][0]) / 180 * Math.PI, ph = (1 - (HUBS[h][1] + 180) / 360) * TAU; return [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
+      const ARC = { per: 150, R: CFG.radius + 0.05, lift: 0.5 };
+      const hubKeys = [...new Set(ROUTES.flat())];
+      const ARCN = ROUTES.length * ARC.per + hubKeys.length;
+      const arcA = new Float32Array(ARCN * 3), arcB = new Float32Array(ARCN * 3), arcT = new Float32Array(ARCN), arcMeta = new Float32Array(ARCN * 3);
+      {
+        let w = 0;
+        for (let r = 0; r < ROUTES.length; r++) {
+          const A = llv(ROUTES[r][0]), B = llv(ROUTES[r][1]), off = rand(), spd = 0.07 + rand() * 0.05, mixc = r % 2;
+          for (let i = 0; i < ARC.per; i++, w++) {
+            const w3 = w * 3;
+            arcA[w3] = A[0]; arcA[w3 + 1] = A[1]; arcA[w3 + 2] = A[2];
+            arcB[w3] = B[0]; arcB[w3 + 1] = B[1]; arcB[w3 + 2] = B[2];
+            arcT[w] = (i + 0.5) / ARC.per;
+            arcMeta[w3] = off; arcMeta[w3 + 1] = spd; arcMeta[w3 + 2] = mixc;
+          }
+        }
+        for (let h = 0; h < hubKeys.length; h++, w++) { // beacon pulsante en cada ciudad
+          const A = llv(hubKeys[h]), w3 = w * 3;
+          arcA[w3] = A[0]; arcA[w3 + 1] = A[1]; arcA[w3 + 2] = A[2];
+          arcB[w3] = A[0]; arcB[w3 + 1] = A[1]; arcB[w3 + 2] = A[2];
+          arcT[w] = -1; arcMeta[w3] = rand(); arcMeta[w3 + 1] = 0; arcMeta[w3 + 2] = (h % 3 === 0) ? 1 : 0;
+        }
+      }
+      const arcGeo = new THREE.BufferGeometry();
+      arcGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(ARCN * 3), 3)); // dummy: la GPU calcula
+      arcGeo.setAttribute("aA", new THREE.BufferAttribute(arcA, 3));
+      arcGeo.setAttribute("aB", new THREE.BufferAttribute(arcB, 3));
+      arcGeo.setAttribute("aT", new THREE.BufferAttribute(arcT, 1));
+      arcGeo.setAttribute("aMeta", new THREE.BufferAttribute(arcMeta, 3));
+      const arcU = { uTime: { value: 0 }, uReveal: { value: 0 }, uCY: { value: 1 }, uSY: { value: 0 }, uCP: { value: 1 }, uSP: { value: 0 }, uR: { value: ARC.R }, uLift: { value: ARC.lift }, uScale: { value: 20.0 } };
+      const arcMat = new THREE.ShaderMaterial({
+        uniforms: arcU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        vertexShader: `
+          attribute vec3 aA; attribute vec3 aB; attribute float aT; attribute vec3 aMeta;
+          uniform float uTime, uReveal, uCY, uSY, uCP, uSP, uR, uLift, uScale;
+          varying float vI; varying float vHead; varying float vMix;
+          void main(){
+            vec3 p; float head; float I;
+            if (aT < 0.0) { // beacon: late en la ciudad
+              p = aA * (uR + 0.01);
+              head = 0.5 + 0.5 * sin(uTime * 2.4 + aMeta.x * 40.0);
+              I = 0.30 + 1.10 * head * head;
+            } else { // gran circulo: slerp(A,B,t) elevado por el largo de la ruta
+              float cosO = clamp(dot(aA, aB), -1.0, 1.0);
+              float O = acos(cosO); float sO = max(sin(O), 1e-4);
+              vec3 pu = (sin((1.0 - aT) * O) * aA + sin(aT * O) * aB) / sO;
+              p = pu * (uR + uLift * sin(3.14159 * aT) * O * 0.45);
+              float d = fract(uTime * aMeta.y + aMeta.x - aT); // cometa: cabeza adelante, cola que se apaga
+              head = pow(max(0.0, 1.0 - d * 2.2), 2.0);
+              I = 0.07 + 2.2 * head;
+            }
+            float x1 = p.x * uCY + p.z * uSY; float z1 = -p.x * uSY + p.z * uCY; // misma rotacion que el planeta (spin -> eje acostado)
+            vec3 g = vec3(x1, p.y * uCP - z1 * uSP, p.y * uSP + z1 * uCP);
+            float dim = 0.07 + 0.93 * smoothstep(0.0, 1.0, clamp((g.z + 1.5) / 4.0, 0.0, 1.0)); // atras tenue
+            vI = I * dim * uReveal; vHead = head; vMix = aMeta.z;
+            vec4 mv = modelViewMatrix * vec4(g, 1.0);
+            gl_PointSize = ((aT < 0.0) ? (3.0 + 2.2 * head) : (1.2 + 3.4 * head)) * (uScale / -mv.z);
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: `
+          precision mediump float; varying float vI; varying float vHead; varying float vMix;
+          void main(){
+            vec2 d = gl_PointCoord - vec2(0.5); float r = dot(d, d); if (r > 0.25) discard;
+            float a = smoothstep(0.25, 0.0, r);
+            vec3 base = mix(vec3(1.0, 0.365, 0.235), vec3(1.0, 0.62, 0.32), vMix); // naranja WBA -> ambar
+            vec3 col = mix(base, vec3(1.0), vHead * 0.55); // la cabeza se calienta a blanco
+            gl_FragColor = vec4(col * vI * (0.55 + a * 0.75), a * vI);
+          }`,
+      });
+      const arcPoints = new THREE.Points(arcGeo, arcMat); arcPoints.frustumCulled = false; scene.add(arcPoints);
+      arcPoints.scale.setScalar(VIEW.scale); arcPoints.position.y = VIEW.y;
+
+      // ---------- universo: estrellas de fondo titilando ----------
+      const bgPos = new Float32Array(STARBG.count * 3), bgSeed = new Float32Array(STARBG.count);
+      for (let i = 0; i < STARBG.count; i++) {
+        bgPos[i * 3] = (rand() - 0.5) * 42; bgPos[i * 3 + 1] = (rand() - 0.5) * 24; bgPos[i * 3 + 2] = -3 - rand() * 22;
+        bgSeed[i] = rand();
+      }
+      const bgGeo = new THREE.BufferGeometry();
+      bgGeo.setAttribute("position", new THREE.BufferAttribute(bgPos, 3));
+      bgGeo.setAttribute("aSeed", new THREE.BufferAttribute(bgSeed, 1));
+      const bgU = { uTime: { value: 0 }, uReveal: { value: 0 }, uScale: { value: 20.0 } };
+      const bgMat = new THREE.ShaderMaterial({
+        uniforms: bgU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        vertexShader: `
+          attribute float aSeed; uniform float uTime, uReveal, uScale; varying float vI; varying float vSeed;
+          void main(){
+            float tw = 0.30 + 0.70 * pow(0.5 + 0.5 * sin(uTime * (0.6 + aSeed * 2.4) + aSeed * 41.0), 2.0);
+            vI = tw * uReveal; vSeed = aSeed;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = (1.0 + aSeed * 1.8) * (uScale / -mv.z);
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: `
+          precision mediump float; varying float vI; varying float vSeed;
+          void main(){
+            vec2 d = gl_PointCoord - vec2(0.5); float r = dot(d, d); if (r > 0.25) discard;
+            float a = smoothstep(0.25, 0.0, r);
+            vec3 col = mix(vec3(0.82, 0.80, 0.78), vec3(1.0, 0.45, 0.28), step(0.93, vSeed)); // gris calido, alguna naranja
+            gl_FragColor = vec4(col * vI * (0.5 + a * 0.8), a * vI);
+          }`,
+      });
+      const bgPoints = new THREE.Points(bgGeo, bgMat); bgPoints.frustumCulled = false; scene.add(bgPoints);
+
+      // ---------- TAGLINE con pretext: layout MEDIDO (medir -> envolver -> centrar) -> particulas ----------
+      // En cada resize se re-mide el texto y las particulas fluyen al nuevo acomodo: siempre bien ordenado.
+      const TAG = {
+        texts: ["Estrategia, diseño y tecnología al servicio de marcas que quieren destacar de verdad.", "Agencia de diseño y marketing digital."],
+        count: 5200, y: 0.85, worldFS: 0.52, cycle: 7,
+      };
+      let tagIdx = 0, tagNextAt = 6.5, tagSwapAt = 0, tagFading = false; // ciclo: solido -> se disuelve -> vuela a la otra frase -> solido
+      const tTX = new Float32Array(TAG.count), tTY = new Float32Array(TAG.count); // targets
+      const tPX = new Float32Array(TAG.count), tPY = new Float32Array(TAG.count); // posicion fisica
+      const tVX = new Float32Array(TAG.count), tVY = new Float32Array(TAG.count); // velocidad
+      const tSeed = new Float32Array(TAG.count);
+      for (let i = 0; i < TAG.count; i++) tSeed[i] = rand();
+      const tagPos = new Float32Array(TAG.count * 3), tagCol = new Float32Array(TAG.count * 3), tagSz = new Float32Array(TAG.count);
+      let tagReady = false;
+      function layoutTagline() {
+        const FS = 84, LH = 1.32;
+        const c = document.createElement("canvas"), g = c.getContext("2d");
+        g.font = `500 ${FS}px Inter, system-ui, sans-serif`;
+        const worldW = 2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.z * camera.aspect;
+        const maxLine = worldW * 0.85; // el texto ocupa hasta ~85% del ancho
+        const TXT = TAG.texts[tagIdx], words = TXT.split(" ");
+        let worldFS, lines;
+        if (g.measureText(TXT).width / FS * TAG.worldFS <= maxLine) { worldFS = TAG.worldFS; lines = [TXT]; } // frase corta: UNA linea grande
+        else { // frase larga: DOS lineas balanceadas (pretext: probar cada corte y quedarse con el mas parejo)
+          let best = null;
+          for (let b = 1; b < words.length; b++) {
+            const l1 = words.slice(0, b).join(" "), l2 = words.slice(b).join(" ");
+            const m = Math.max(g.measureText(l1).width, g.measureText(l2).width);
+            if (!best || m < best.m) best = { m, l1, l2 };
+          }
+          worldFS = Math.min(TAG.worldFS, maxLine / (best.m / FS)); lines = [best.l1, best.l2];
+        }
+        if (worldFS < 0.3) { // pantalla angosta: envolver en mas lineas con tamano legible
+          worldFS = 0.3; const maxPx = maxLine / (worldFS / FS);
+          lines = []; let line = "";
+          for (const wd of words) { const t = line ? line + " " + wd : wd; if (g.measureText(t).width <= maxPx || !line) line = t; else { lines.push(line); line = wd; } }
+          if (line) lines.push(line);
+        }
+        const s = worldFS / FS;
+        let wMax = 0; for (const ln of lines) wMax = Math.max(wMax, g.measureText(ln).width);
+        const W = Math.min(4096, Math.ceil(wMax) + 48), H = Math.ceil(lines.length * FS * LH) + 48;
+        c.width = W; c.height = H;
+        g.font = `500 ${FS}px Inter, system-ui, sans-serif`; g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+        for (let li = 0; li < lines.length; li++) g.fillText(lines[li], W / 2, 24 + FS * LH * (li + 0.5));
+        const img = g.getImageData(0, 0, W, H).data, cand = [];
+        for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (img[(y * W + x) * 4 + 3] > 128) cand.push(x, y);
+        const nc = cand.length / 2;
+        for (let i = 0; i < TAG.count; i++) {
+          const k = ((i * nc / TAG.count) | 0) * 2; // muestreo en orden: cubre todo el texto parejo
+          const tx = (cand[k] - W / 2) * s, ty = TAG.y - (cand[k + 1] - H / 2) * s;
+          tTX[i] = tx; tTY[i] = ty;
+          if (!tagReady) { tPX[i] = tx + (rand() - 0.5) * 2.6; tPY[i] = ty + (rand() - 0.5) * 1.8; } // nace disperso y se arma solo
+        }
+        // SOLIDO: el mismo layout es ademas una textura nitida; las particulas lo arman y el texto se funde a solido
+        if (tagMesh.material.map) tagMesh.material.map.dispose();
+        const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+        tagMesh.material.map = tex; tagMesh.material.needsUpdate = true;
+        tagMesh.scale.set(W * s, H * s, 1); tagMesh.position.set(0, TAG.y, 0.001);
+        solidP = 0; solidAt = (performance.now() - t0) * 0.001 + 1.0; // ~1s despues de armarse, solidifica
+        tagReady = true;
+      }
+      const tagGeo = new THREE.BufferGeometry();
+      tagGeo.setAttribute("position", new THREE.BufferAttribute(tagPos, 3));
+      tagGeo.setAttribute("aColor", new THREE.BufferAttribute(tagCol, 3));
+      tagGeo.setAttribute("aSize", new THREE.BufferAttribute(tagSz, 1));
+      const tagPoints = new THREE.Points(tagGeo, material); tagPoints.frustumCulled = false; scene.add(tagPoints);
+      const tagMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xdedede, transparent: true, opacity: 0, depthWrite: false })); // blanco contenido: brillo estable, sin reventar el bloom
+      scene.add(tagMesh);
+      let solidP = 0, solidAt = 1e9; // cuanto del texto ya es solido / cuando empezar a solidificar
+
+      // ---------- interaccion: SOLO arrastrar para rotar (horizontal = longitudes, vertical = inclina un poco) ----------
+      let dragYaw = 0, dragTilt = 0, dragging = false, dragX = 0, dragY = 0;
+      window.addEventListener("pointerdown", (e) => { dragging = true; dragX = e.clientX; dragY = e.clientY; });
+      window.addEventListener("pointerup", () => (dragging = false));
+      window.addEventListener("pointerleave", () => (dragging = false));
+      window.addEventListener("pointermove", (e) => { if (dragging) { dragYaw += (e.clientX - dragX) * 0.005; dragTilt = clamp(dragTilt - (e.clientY - dragY) * 0.004, -0.45, 0.45); dragX = e.clientX; dragY = e.clientY; } }, { passive: true });
+
+      function resize() { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); if (tagReady) layoutTagline(); }
+      window.addEventListener("resize", resize, { passive: true });
+
+      const cOut = new THREE.Color();
+      let t0 = performance.now(), last = t0;
+      window.__seek = (s) => { t0 = performance.now() - s * 1000; };
+
+      function frame(now) {
+        const et = (now - t0) * 0.001, time = et;
+        const dtS = Math.min(42, now - last) / 16.67; last = now; // factor de frame (1 = 60fps)
+        material.uniforms.uOpacity.value = Math.min(1, material.uniforms.uOpacity.value + 0.04);
+
+        // globo real: gira VERTICALMENTE (rotacion continua en el tilt, eje X de pantalla) -> los continentes suben de abajo hacia arriba
+        const spinA = ROT.yaw0 + dragYaw, cS = Math.cos(spinA), sS = Math.sin(spinA); // meridiano LatAm fijo al frente
+        const tiltA = ROT.tilt + dragTilt - et * ROT.speed, cT = Math.cos(tiltA), sT = Math.sin(tiltA); // signo negativo = la superficie frontal sube
+
+        if (globeReady) for (let i = 0; i < N; i++) {
+          const p = P[i];
+          const x1 = p.hx * cS + p.hz * sS, z1 = -p.hx * sS + p.hz * cS; // spin por longitudes (eje polar)
+          const gx = x1, gy = p.hy * cT - z1 * sT, gz = p.hy * sT + z1 * cT; // eje acostado hacia atras
+
+          let gMul; const gf = clamp(0.5 + gy / (CFG.radius * 2.2), 0, 1); // arriba mas calido
+          if (p.isLand) { cOut.copy(ACCENT).lerp(EMBER, gf * 0.55); const n = 0.5 + 0.5 * (Math.sin(time * p.tws + p.tw) * 0.65 + Math.sin(time * p.tws2 + p.tw2) * 0.35); gMul = 1.0 + 0.22 * n; } // brillo alto y casi constante: el continente se lee SOLIDO
+          else { cOut.copy(WHITE).lerp(ACCENT, 0.25); gMul = 0.2; } // oceano: velo que mantiene viva la esfera (hasta en el Pacifico)
+          const frontDim = 0.07 + 0.93 * smooth(clamp((gz + 1.5) / 4, 0, 1));
+          const mul = gMul * frontDim;
+
+          // FISICA (pretext): perseguir el target con resorte + inercia, jitter organico
+          const k = PHYS.spr * (0.8 + 0.4 * (p.tw / TAU));
+          const fx = (gx - ppx[i]) * k + Math.sin(time * 1.3 + p.tw * 4.77) * PHYS.jit;
+          const fy = (gy - ppy[i]) * k + Math.cos(time * 1.1 + p.tw2 * 3.91) * PHYS.jit;
+          const fz = (gz - ppz[i]) * k;
+          pvx[i] = (pvx[i] + fx) * PHYS.damp; pvy[i] = (pvy[i] + fy) * PHYS.damp; pvz[i] = (pvz[i] + fz) * PHYS.damp;
+          ppx[i] += pvx[i]; ppy[i] += pvy[i]; ppz[i] += pvz[i];
+
+          const i3 = i * 3; positions[i3] = ppx[i]; positions[i3 + 1] = ppy[i]; positions[i3 + 2] = ppz[i];
+          colors[i3] = cOut.r * mul; colors[i3 + 1] = cOut.g * mul; colors[i3 + 2] = cOut.b * mul; sizes[i] = p.size;
+        }
+        geometry.attributes.position.needsUpdate = true;
+        geometry.attributes.aColor.needsUpdate = true;
+        geometry.attributes.aSize.needsUpdate = true;
+
+        // TAGLINE: las particulas (fisica de resorte) arman el texto; al asentarse se funde a SOLIDO y queda polvo vivo
+        if (tagReady) {
+          const tRev = sstep(0.5, 2.0, et);
+          // ciclo de frases: el solido se disuelve, las particulas vuelan a la otra frase y re-solidifica (por TIEMPO)
+          if (et > tagNextAt && !tagFading) { tagFading = true; solidAt = 1e9; tagSwapAt = et + 0.9; }
+          if (tagFading && et > tagSwapAt) { tagIdx = (tagIdx + 1) % TAG.texts.length; layoutTagline(); tagNextAt = et + TAG.cycle; tagFading = false; }
+          solidP += (((et > solidAt) ? 1 : 0) - solidP) * Math.min(1, 0.075 * dtS);
+          tagMesh.material.opacity = solidP * tRev;
+          const pm = 1 - solidP * 0.72; // el texto solido toma el protagonismo; las particulas quedan como brillo parejo
+          for (let i = 0; i < TAG.count; i++) {
+            const k2 = 0.085 * (0.85 + 0.3 * tSeed[i]);
+            const fx = (tTX[i] - tPX[i]) * k2 + Math.sin(time * 1.2 + tSeed[i] * 37.0) * 0.00022;
+            const fy = (tTY[i] - tPY[i]) * k2 + Math.cos(time * 1.05 + tSeed[i] * 29.0) * 0.00022;
+            tVX[i] = (tVX[i] + fx) * 0.86; tVY[i] = (tVY[i] + fy) * 0.86;
+            tPX[i] += tVX[i]; tPY[i] += tVY[i];
+            const i3 = i * 3;
+            tagPos[i3] = tPX[i]; tagPos[i3 + 1] = tPY[i]; tagPos[i3 + 2] = 0.002;
+            const tw = 0.93 + 0.07 * Math.sin(time * (0.8 + tSeed[i] * 1.6) + tSeed[i] * 40.0); // brillo casi constante (apenas vivo)
+            const m = 0.85 * tw * tRev * pm;
+            tagCol[i3] = m; tagCol[i3 + 1] = m * 0.98; tagCol[i3 + 2] = m * 0.95; // blanco apenas calido
+            tagSz[i] = 1.15 + tSeed[i] * 0.55;
+          }
+          tagGeo.attributes.position.needsUpdate = true; tagGeo.attributes.aColor.needsUpdate = true; tagGeo.attributes.aSize.needsUpdate = true;
+        }
+
+        // cometas + universo (los cometas esperan a que exista el planeta)
+        arcU.uTime.value = et; arcU.uReveal.value = globeAt < 0 ? 0 : sstep(globeAt + 0.3, globeAt + 2.0, et);
+        arcU.uCP.value = cT; arcU.uSP.value = sT; arcU.uCY.value = cS; arcU.uSY.value = sS;
+        bgU.uTime.value = et; bgU.uReveal.value = sstep(0.2, 1.6, et);
+
+        camera.lookAt(0, 0, 0);
+        composer.render();
+        requestAnimationFrame(frame);
+      }
+
+      let globeReady = false, globeAt = -1;
+      function boot() {
+        resize();
+        layoutTagline(); // texto y UI no esperan la descarga del mapa
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => setTimeout(layoutTagline, 80)); // re-mide con Inter cargada (las particulas fluyen al acomodo final)
+        requestAnimationFrame(frame);
+        setTimeout(() => { document.getElementById("brand").classList.add("show"); document.getElementById("strip").classList.add("show"); }, 150);
+        loadEarthMask().then((earth) => { buildGlobe(earth); globeReady = true; globeAt = (performance.now() - t0) * 0.001; });
+      }
+      boot();
+      window.wba = { VIEW, ROT, PHYS, TAG, bloom: bloomPass, points, arcPoints, relayout: layoutTagline };
+    </script>
+  </body>
+</html>
