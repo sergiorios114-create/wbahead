@@ -166,11 +166,11 @@
       const points = new THREE.Points(geometry, material); points.frustumCulled = false; scene.add(points);
       points.scale.setScalar(VIEW.scale); points.position.y = VIEW.y;
 
-      // ---------- COMETAS: rutas entre ciudades, slerp 100% en GPU (giran con el planeta) ----------
-      const HUBS = { nyc: [40.7, -74.0], la: [34.05, -118.24], mia: [25.76, -80.19], mex: [19.43, -99.13], sao: [-23.55, -46.63], scl: [-33.45, -70.66], lon: [51.5, -0.12], dxb: [25.2, 55.27], tyo: [35.68, 139.69], hnl: [21.3, -157.85] };
-      const ROUTES = [["nyc", "lon"], ["mia", "sao"], ["la", "tyo"], ["nyc", "mex"], ["la", "hnl"], ["mia", "scl"], ["nyc", "dxb"]];
+      // ---------- RED GLOBAL: el mundo conectado — lineas de senal tendidas entre ciudades, datos en ambos sentidos (red, no proyectiles) ----------
+      const HUBS = { nyc: [40.7, -74.0], la: [34.05, -118.24], mia: [25.76, -80.19], mex: [19.43, -99.13], sao: [-23.55, -46.63], scl: [-33.45, -70.66], bog: [4.71, -74.07], lon: [51.5, -0.12], mad: [40.42, -3.7], dxb: [25.2, 55.27], tyo: [35.68, 139.69], syd: [-33.87, 151.21], hnl: [21.3, -157.85], jnb: [-26.2, 28.04], sin: [1.35, 103.82] };
+      const ROUTES = [["nyc", "lon"], ["mia", "sao"], ["la", "tyo"], ["nyc", "mex"], ["la", "hnl"], ["mia", "scl"], ["nyc", "dxb"], ["scl", "sao"], ["sao", "mad"], ["lon", "dxb"], ["dxb", "tyo"], ["tyo", "syd"], ["bog", "mia"], ["mex", "bog"], ["scl", "syd"], ["sao", "jnb"], ["jnb", "syd"], ["sin", "syd"], ["dxb", "sin"], ["bog", "sao"]]; // hemisferio sur bien tejido: es lo que muestra el domo
       const llv = (h) => { const th = (90 - HUBS[h][0]) / 180 * Math.PI, ph = (1 - (HUBS[h][1] + 180) / 360) * TAU; return [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
-      const ARC = { per: 150, R: CFG.radius + 0.05, lift: 0.5 };
+      const ARC = { per: 150, R: CFG.radius + 0.05, lift: 0.3 }; // lift bajo: las lineas abrazan el globo como malla (nada de parabolas balisticas)
       const hubKeys = [...new Set(ROUTES.flat())];
       const ARCN = ROUTES.length * ARC.per + hubKeys.length;
       const arcA = new Float32Array(ARCN * 3), arcB = new Float32Array(ARCN * 3), arcT = new Float32Array(ARCN), arcMeta = new Float32Array(ARCN * 3);
@@ -212,21 +212,25 @@
               p = aA * (uR + 0.01);
               head = 0.5 + 0.5 * sin(uTime * 2.4 + aMeta.x * 40.0);
               I = 0.30 + 1.10 * head * head;
-            } else { // gran circulo: slerp(A,B,t) elevado por el largo de la ruta
+            } else { // gran circulo: slerp(A,B,t); la LINEA queda tendida completa (se lee red, no trayectoria)
               float cosO = clamp(dot(aA, aB), -1.0, 1.0);
               float O = acos(cosO); float sO = max(sin(O), 1e-4);
               vec3 pu = (sin((1.0 - aT) * O) * aA + sin(aT * O) * aB) / sO;
               p = pu * (uR + uLift * sin(3.14159 * aT) * O * 0.45);
-              float d = fract(uTime * aMeta.y + aMeta.x - aT); // cometa: cabeza adelante, cola que se apaga
-              head = pow(max(0.0, 1.0 - d * 2.2), 2.0);
-              I = 0.07 + 2.2 * head;
+              float d1 = fract(aT - uTime * aMeta.y - aMeta.x);              // pulso de datos A -> B
+              float d2 = fract(aT + uTime * aMeta.y * 0.83 + aMeta.x * 1.61); // y de B -> A: conversacion en ambos sentidos
+              float p1 = smoothstep(0.09, 0.0, min(d1, 1.0 - d1));
+              float p2 = smoothstep(0.07, 0.0, min(d2, 1.0 - d2));
+              float ends = smoothstep(0.05, 0.0, aT) + smoothstep(0.95, 1.0, aT); // las puntas se funden con el beacon de su ciudad
+              head = max(p1, p2 * 0.8);
+              I = 0.42 + 0.30 * ends + 1.05 * p1 + 0.80 * p2; // linea siempre visible + brillos viajando
             }
             float x1 = p.x * uCY + p.z * uSY; float z1 = -p.x * uSY + p.z * uCY; // misma rotacion que el planeta (spin -> eje acostado)
             vec3 g = vec3(x1, p.y * uCP - z1 * uSP, p.y * uSP + z1 * uCP);
             float dim = 0.07 + 0.93 * smoothstep(0.0, 1.0, clamp((g.z + 1.5) / 4.0, 0.0, 1.0)); // atras tenue
             vI = I * dim * uReveal; vHead = head; vMix = aMeta.z;
             vec4 mv = modelViewMatrix * vec4(g, 1.0);
-            gl_PointSize = ((aT < 0.0) ? (3.0 + 2.2 * head) : (1.2 + 3.4 * head)) * (uScale / -mv.z);
+            gl_PointSize = ((aT < 0.0) ? (3.0 + 2.2 * head) : (1.7 + 2.0 * head)) * (uScale / -mv.z);
             gl_Position = projectionMatrix * mv;
           }`,
         fragmentShader: `
@@ -235,12 +239,74 @@
             vec2 d = gl_PointCoord - vec2(0.5); float r = dot(d, d); if (r > 0.25) discard;
             float a = smoothstep(0.25, 0.0, r);
             vec3 base = mix(vec3(1.0, 0.365, 0.235), vec3(1.0, 0.62, 0.32), vMix); // naranja WBA -> ambar
-            vec3 col = mix(base, vec3(1.0), vHead * 0.55); // la cabeza se calienta a blanco
+            vec3 col = mix(base, vec3(1.0, 0.94, 0.84), 0.30 + vHead * 0.55); // linea crema: se despega del continente; el pulso se calienta a blanco
             gl_FragColor = vec4(col * vI * (0.55 + a * 0.75), a * vI);
           }`,
       });
       const arcPoints = new THREE.Points(arcGeo, arcMat); arcPoints.frustumCulled = false; scene.add(arcPoints);
       arcPoints.scale.setScalar(VIEW.scale); arcPoints.position.y = VIEW.y;
+
+      // ---------- ONDAS DE SENAL: anillos que nacen en cada ciudad y se expanden sobre la esfera (broadcast inalambrico) ----------
+      const RIP = { per: 64, waves: 3, maxA: 0.40, speed: 0.16 }; // 3 ondas desfasadas por ciudad, radio angular max ~0.4 rad
+      const RIPN = hubKeys.length * RIP.waves * RIP.per;
+      const ripA = new Float32Array(RIPN * 3), ripDir = new Float32Array(RIPN * 3), ripMeta = new Float32Array(RIPN * 2);
+      {
+        let w = 0;
+        for (let h = 0; h < hubKeys.length; h++) {
+          const A = llv(hubKeys[h]);
+          const ref = Math.abs(A[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]; // base ortonormal tangente al globo en la ciudad
+          let ux = A[1] * ref[2] - A[2] * ref[1], uy = A[2] * ref[0] - A[0] * ref[2], uz = A[0] * ref[1] - A[1] * ref[0];
+          const ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
+          const vx = A[1] * uz - A[2] * uy, vy = A[2] * ux - A[0] * uz, vz = A[0] * uy - A[1] * ux;
+          for (let k = 0; k < RIP.waves; k++) {
+            const ph = rand();
+            for (let i = 0; i < RIP.per; i++, w++) {
+              const th = (i / RIP.per) * TAU, w3 = w * 3, w2 = w * 2;
+              ripA[w3] = A[0]; ripA[w3 + 1] = A[1]; ripA[w3 + 2] = A[2];
+              ripDir[w3] = ux * Math.cos(th) + vx * Math.sin(th);
+              ripDir[w3 + 1] = uy * Math.cos(th) + vy * Math.sin(th);
+              ripDir[w3 + 2] = uz * Math.cos(th) + vz * Math.sin(th);
+              ripMeta[w2] = ph + k / RIP.waves; ripMeta[w2 + 1] = rand();
+            }
+          }
+        }
+      }
+      const ripGeo = new THREE.BufferGeometry();
+      ripGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(RIPN * 3), 3)); // dummy: la GPU calcula
+      ripGeo.setAttribute("aA", new THREE.BufferAttribute(ripA, 3));
+      ripGeo.setAttribute("aDir", new THREE.BufferAttribute(ripDir, 3));
+      ripGeo.setAttribute("aMeta", new THREE.BufferAttribute(ripMeta, 2));
+      const ripU = { uTime: { value: 0 }, uReveal: { value: 0 }, uCY: { value: 1 }, uSY: { value: 0 }, uCP: { value: 1 }, uSP: { value: 0 }, uR: { value: ARC.R }, uScale: { value: 20.0 } };
+      const ripMat = new THREE.ShaderMaterial({
+        uniforms: ripU, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        vertexShader: `
+          attribute vec3 aA; attribute vec3 aDir; attribute vec2 aMeta;
+          uniform float uTime, uReveal, uCY, uSY, uCP, uSP, uR, uScale;
+          varying float vI;
+          void main(){
+            float t = fract(uTime * ${RIP.speed} + aMeta.x); // 0->1: la onda nace en la ciudad y se expande
+            float alpha = t * ${RIP.maxA};                   // radio angular sobre la esfera
+            vec3 p = (aA * cos(alpha) + aDir * sin(alpha)) * (uR + 0.012);
+            float x1 = p.x * uCY + p.z * uSY; float z1 = -p.x * uSY + p.z * uCY; // misma rotacion que el planeta
+            vec3 g = vec3(x1, p.y * uCP - z1 * uSP, p.y * uSP + z1 * uCP);
+            float dim = 0.05 + 0.95 * smoothstep(0.0, 1.0, clamp((g.z + 1.5) / 4.0, 0.0, 1.0));
+            float fade = (1.0 - t) * (1.0 - t) * smoothstep(0.0, 0.12, t); // fuerte al nacer, se disipa al crecer
+            vI = (0.85 * fade + 0.04) * dim * uReveal * (0.75 + 0.5 * aMeta.y);
+            vec4 mv = modelViewMatrix * vec4(g, 1.0);
+            gl_PointSize = (1.1 + 1.3 * fade) * (uScale / -mv.z);
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: `
+          precision mediump float; varying float vI;
+          void main(){
+            vec2 d = gl_PointCoord - vec2(0.5); float r = dot(d, d); if (r > 0.25) discard;
+            float a = smoothstep(0.25, 0.0, r);
+            vec3 col = vec3(1.0, 0.67, 0.49); // halo calido de senal
+            gl_FragColor = vec4(col * vI * (0.5 + a * 0.8), a * vI);
+          }`,
+      });
+      const ripPoints = new THREE.Points(ripGeo, ripMat); ripPoints.frustumCulled = false; scene.add(ripPoints);
+      ripPoints.scale.setScalar(VIEW.scale); ripPoints.position.y = VIEW.y;
 
       // ---------- universo: estrellas de fondo titilando ----------
       const bgPos = new Float32Array(STARBG.count * 3), bgSeed = new Float32Array(STARBG.count);
@@ -364,6 +430,7 @@
         }
         points.scale.setScalar(VIEW.scale); points.position.y = VIEW.y;
         arcPoints.scale.setScalar(VIEW.scale); arcPoints.position.y = VIEW.y;
+        ripPoints.scale.setScalar(VIEW.scale); ripPoints.position.y = VIEW.y;
       }
       function resize() { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); fitView(); if (tagReady) layoutTagline(); }
       window.addEventListener("resize", resize, { passive: true });
@@ -432,9 +499,11 @@
           tagGeo.attributes.position.needsUpdate = true; tagGeo.attributes.aColor.needsUpdate = true; tagGeo.attributes.aSize.needsUpdate = true;
         }
 
-        // cometas + universo (los cometas esperan a que exista el planeta)
+        // red global + ondas + universo (la red espera a que exista el planeta)
         arcU.uTime.value = et; arcU.uReveal.value = globeAt < 0 ? 0 : sstep(globeAt + 0.3, globeAt + 2.0, et);
         arcU.uCP.value = cT; arcU.uSP.value = sT; arcU.uCY.value = cS; arcU.uSY.value = sS;
+        ripU.uTime.value = et; ripU.uReveal.value = arcU.uReveal.value;
+        ripU.uCP.value = cT; ripU.uSP.value = sT; ripU.uCY.value = cS; ripU.uSY.value = sS;
         bgU.uTime.value = et; bgU.uReveal.value = sstep(0.2, 1.6, et);
 
         camera.lookAt(0, 0, 0);
@@ -452,7 +521,7 @@
         loadEarthMask().then((earth) => { buildGlobe(earth); globeReady = true; globeAt = (performance.now() - t0) * 0.001; });
       }
       boot();
-      window.wba = { VIEW, ROT, PHYS, TAG, bloom: bloomPass, points, arcPoints, relayout: layoutTagline };
+      window.wba = { VIEW, ROT, PHYS, TAG, RIP, bloom: bloomPass, points, arcPoints, ripPoints, relayout: layoutTagline };
     </script>
   </body>
 </html>
