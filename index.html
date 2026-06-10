@@ -351,7 +351,21 @@
       window.addEventListener("pointerleave", () => (dragging = false));
       window.addEventListener("pointermove", (e) => { if (dragging) { dragYaw += (e.clientX - dragX) * 0.005; dragTilt = clamp(dragTilt - (e.clientY - dragY) * 0.004, -0.45, 0.45); dragX = e.clientX; dragY = e.clientY; } }, { passive: true });
 
-      function resize() { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); if (tagReady) layoutTagline(); }
+      // encuadre del planeta: domo gigante en pantallas anchas; en portrait/celular se achica y sube para que se vea >=90% del ANCHO del globo (de costa a costa)
+      function fitView() {
+        const worldH = 2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.z;
+        const worldW = worldH * camera.aspect;
+        if (camera.aspect < 1.3) {                          // portrait: el domo gigante solo dejaba ver una franja central -> mostrar SOLO la mitad superior, de costa a costa
+          VIEW.scale = (worldW * 0.94) / (2 * CFG.radius);  // diametro ~= 94% del ancho visible (la mitad que asoma se ve completa de costa a costa)
+          const stripH = (50 / window.innerHeight) * worldH;      // alto de la franja blanca inferior, en unidades de mundo
+          VIEW.y = -worldH * 0.5 + stripH;                        // ecuador (parte mas ancha) justo sobre la franja -> asoma SOLO la mitad superior (domo)
+        } else {                                            // landscape/desktop: el domo gigante de siempre
+          VIEW.scale = 3.2; VIEW.y = -10.8;
+        }
+        points.scale.setScalar(VIEW.scale); points.position.y = VIEW.y;
+        arcPoints.scale.setScalar(VIEW.scale); arcPoints.position.y = VIEW.y;
+      }
+      function resize() { const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); composer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); fitView(); if (tagReady) layoutTagline(); }
       window.addEventListener("resize", resize, { passive: true });
 
       const cOut = new THREE.Color();
